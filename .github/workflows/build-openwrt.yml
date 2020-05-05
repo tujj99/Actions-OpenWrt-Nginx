@@ -6,7 +6,7 @@
 # Blog: https://p3terx.com
 #=================================================
 
-name: Build OpenWrt
+name: Build OpenWrt x86_64
 
 on: 
   # push: 
@@ -18,16 +18,6 @@ on:
     types: started
 
 env:
-  REPO_URL: https://github.com/openwrt/openwrt
-  REPO_BRANCH: master
-  CONFIG_FILE: X86_64.config
-  DIY_SH: diy.sh
-  FREE_UP_DISK: true
-  SSH_ACTIONS: false
-  UPLOAD_BIN_DIR: false
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
-  UPLOAD_COWTRANSFER: false
   REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
   PPPOE_USERNAME: ${{ secrets.PPPOE_USERNAME }}
   PPPOE_PASSWD: ${{ secrets.PPPOE_PASSWD }}
@@ -41,6 +31,20 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@master
+  
+    - name: Load Settings.ini
+      run: |    
+        source "${GITHUB_WORKSPACE}/settings.ini"
+        echo "::set-env name=REPO_URL::${REPO_URL}"
+        echo "::set-env name=REPO_BRANCH::${REPO_BRANCH}"
+        echo "::set-env name=CONFIG_FILE::${CONFIG_FILE}"
+        echo "::set-env name=DIY_SH::${DIY_SH}"
+        echo "::set-env name=FREE_UP_DISK::${FREE_UP_DISK}"
+        echo "::set-env name=SSH_ACTIONS::${SSH_ACTIONS}"
+        echo "::set-env name=UPLOAD_BIN_DIR_FOR_ARTIFACT::${UPLOAD_BIN_DIR_FOR_ARTIFACT}"
+        echo "::set-env name=UPLOAD_FIRMWARE_FOR_ARTIFACT::${UPLOAD_FIRMWARE_FOR_ARTIFACT}"
+        echo "::set-env name=UPLOAD_FIRMWARE_FOR_RELEASE::${UPLOAD_FIRMWARE_FOR_RELEASE}"
+        echo "::set-env name=UPLOAD_FIRMWARE_TO_COWTRANSFER::${UPLOAD_FIRMWARE_TO_COWTRANSFER}"
 
     - name: Initialization environment
       env:
@@ -49,9 +53,10 @@ jobs:
         sudo swapoff /swapfile
         sudo rm -rf /swapfile /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler ccache xsltproc rename antlr3 gperf
+        sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python2.7 unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler ccache xsltproc rename antlr3 gperf
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
         curl -fsSL https://raw.githubusercontent.com/P3TERX/dotfiles/master/.bashrc >> ~/.bashrc
     
     - name: Get current date
@@ -80,30 +85,22 @@ jobs:
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
 
-    - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a
-
     - name: Load custom configuration
       run: |
-        [ -e files ] && mv files openwrt/files
-        chmod +x $DIY_SH
+        cp -Rf * openwrt/ || true
         cd openwrt
-        ../$DIY_SH
-        if [ -n "$(ls -A "../patches" 2>/dev/null)" ]; then
-        (
-          find "../patches" -type f -name '*.patch'| xargs -i git apply {}
-        )
-        fi
-        [ -e ../$CONFIG_FILE ] && mv ../$CONFIG_FILE .config
-        [ _$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/') == generic ] && DEVICE_NAME=_$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/CONFIG_TARGET_(.*)_DEVICE_.*=y/\1/') || DEVICE_NAME=_$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/')
-        [ -s DEVICE_NAME ] && echo "::set-env name=DEVICE_NAME::$DEVICE_NAME"
+        chmod +x $DIY_SH
+        ./$DIY_SH
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE .config
         make defconfig
+        [ $(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/') == generic ] && DEVICE_NAME=$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/CONFIG_TARGET_(.*)_DEVICE_.*=y/\1/') || DEVICE_NAME=$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/')
+        echo "::set-env name=DEVICE_NAME::$DEVICE_NAME"
         
     - name: Default PPPOE Setting
       if: env.PPPOE_USERNAME && env.PPPOE_PASSWD
       run: |
-        sed -i '$i uci set network.wan.username=${PPPOE_USERNAME}' openwrt/package/*/*/default-settings/files/zzz-default-settings
-        sed -i '$i uci set network.wan.password=${PPPOE_PASSWD}' openwrt/package/*/*/default-settings/files/zzz-default-settings
+        sed -i '$i uci set network.wan.username=${{ env.PPPOE_USERNAME }}' openwrt/package/*/*/default-settings/files/zzz-default-settings
+        sed -i '$i uci set network.wan.password=${{ env.PPPOE_PASSWD }}' openwrt/package/*/*/default-settings/files/zzz-default-settings
         sed -i '$i uci commit network' openwrt/package/*/*/default-settings/files/zzz-default-settings
               
     - name: SSH connection to Actions
@@ -124,16 +121,10 @@ jobs:
         echo -e "$(($(nproc)+1)) thread compile"
         make -j$(($(nproc)+1)) || make -j1 V=s
         echo "::set-env name=status::success"
-
-    - name: WeChat notification
-      if: env.SCKEY && !cancelled()
-      run: |
-        [ ${status} == 'success' ] && curl https://sc.ftqq.com/${secrets.SCKEY}.send?text=OpenWrt ${date2} ${DEVICE_NAME} 编译完成 || curl https://sc.ftqq.com/${secrets.SCKEY}.send?text=OpenWrt ${date2} ${DEVICE_NAME} 编译失败
       
-
     - name: Upload bin directory
       uses: actions/upload-artifact@master
-      if: env.UPLOAD_BIN_DIR == 'true'
+      if: env.UPLOAD_BIN_DIR_FOR_ARTIFACT == 'true'
       with:
         name: OpenWrt_bin
         path: openwrt/bin
@@ -144,6 +135,7 @@ jobs:
       run: |
         mkdir firmware && find openwrt/bin/*/*/*/ -maxdepth 1 \
         -name "*combined*" \
+        -or -name "*vmdk*" \
         -or -name "sha256sums" \
         -or -name "*adbyby*" \
         -or -name "*cifs-mount*" \
@@ -160,7 +152,7 @@ jobs:
         | xargs -i mv -f {} ./firmware/
         cp openwrt/.config  ./firmware/config.txt
         cd firmware
-        rename -v "s/^openwrt/${date3}-openwrt/" *img.gz
+        rename -v "s/^openwrt/${{ env.date3 }}-openwrt/" *img.gz
         zip -r luci-app-adbyby-plus.zip *adbyby* || true
         zip -r luci-app-baidupcs-web.zip *baidupcs* || true
         zip -r luci-app-cifs-mount.zip *cifs-mount* || true
@@ -176,36 +168,47 @@ jobs:
         zip -r luci-app-zerotier.zip *zerotier* || true
         rm -Rf *.ipk
         echo "::set-env name=FIRMWARE::$PWD"
-      
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@master
-      if: env.UPLOAD_FIRMWARE == 'true'
-      with:
-        name: OpenWrt_firmware
-        path: ${FIRMWARE}
+        Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
+        RANDOM=$$$(date +%s)
+        rand=$[$RANDOM % ${#Emoji[@]}]
+        echo "::set-env name=EMOJI::${Emoji[$rand]}"
       
     - name: Create release
       id: create_release
       uses: actions/create-release@master
-      if: env.UPLOAD_RELEASE == 'true'
+      if: env.UPLOAD_FIRMWARE_FOR_RELEASE == 'true'
       env:
-        GITHUB_TOKEN: ${secrets.REPO_TOKEN}
+        GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
       with:
-        tag_name: ${date}_${DEVICE_NAME}
-        release_name: ${date2} ${DEVICE_NAME}
+        tag_name: ${{ env.date }}_${{ env.DEVICE_NAME }}
+        release_name: ${{ env.date2 }} ${{ env.DEVICE_NAME }} ${{ env.EMOJI }}
         draft: false
         prerelease: false     
 
-    - name: Upload release asset
+    - name: Upload firmware for release
       uses: csexton/release-asset-action@master
-      if: env.REPO_TOKEN && env.UPLOAD_RELEASE == 'true'
+      if: env.REPO_TOKEN && env.UPLOAD_FIRMWARE_FOR_RELEASE == 'true'
       with:
-        pattern: "${FIRMWARE}/*"
-        github-token: ${secrets.REPO_TOKEN}
-        release-url: ${steps.create_release.outputs.upload_url}
-        
+        pattern: "${{ env.FIRMWARE }}/*"
+        github-token: ${{ secrets.REPO_TOKEN }}
+        release-url: ${{ steps.create_release.outputs.upload_url }}
+
+    - name: Upload firmware for artifact
+      uses: actions/upload-artifact@master
+      continue-on-error: true
+      if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true'
+      with:
+        name: ${{ env.date3 }} ${{ env.DEVICE_NAME }} ${{ env.EMOJI }}
+        path: ${{ env.FIRMWARE }}
+
     - name: Upload firmware to cowtransfer
-      if: env.UPLOAD_COWTRANSFER == 'true'
+      if: env.UPLOAD_FIRMWARE_TO_COWTRANSFER == 'true'
       run: |
-        curl -fsSL https://git.io/cowtransfer | sh
-        ./cowtransfer-uploader -b 2621440 -s -p 99 -t 3 --hash --silent ${FIRMWARE}
+        curl -fsSL git.io/file-transfer | sh
+        ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
+        echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
+        
+    - name: WeChat notification
+      if: env.SCKEY && !cancelled()
+      run: |
+        [ ${{ env.status }} == 'success' ] && curl https://sc.ftqq.com/${{ secrets.SCKEY }}.send?text=OpenWrt_${{ env.date3 }}_${{ env.DEVICE_NAME }}编译完成 || curl https://sc.ftqq.com/${{ secrets.SCKEY }}.send?text=OpenWrt_${{ env.date3 }}_${{ env.DEVICE_NAME }}编译失败

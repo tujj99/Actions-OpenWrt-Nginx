@@ -25,7 +25,7 @@
 
 X86_64固件在此 [Releases](https://github.com/garypang13/Actions-OpenWrt-Nginx/releases/latest) 下载,每周日更新固件.
 
-后台入口 10.0.0.1 &nbsp;(若后台无法打开,请插拔交换wan,lan网线顺序,默认第一个网口eth0为wan口,第二个网eth1口为lan口.)
+后台入口 10.0.0.1 &nbsp;(若后台无法打开,请插拔交换wan,lan网线顺序.)
 
 默认密码 root
 
@@ -64,6 +64,8 @@ diy云编译教程: [Read the details in my blog (in Chinese) | 中文教程](ht
 + cifsd + NFS 网络共享
 + Netdata 全能性能监控
 + diskman 磁盘管理
++ dockerman 玩转docker必备
++ Rclone 网盘挂载,同步工具
 + qBittorrent BT下载工具
 + Transmission BT/PT下載工具
 + 可道云 做NAS必备
@@ -91,7 +93,7 @@ diy云编译教程: [Read the details in my blog (in Chinese) | 中文教程](ht
 
 2. 命令行输入 `sudo apt-get update` ，然后输入
 `
-sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler ccache xsltproc rename antlr3 gperf curl
+sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python2.7 unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler ccache xsltproc rename antlr3 gperf curl
 `
 
 3. 首次编译执行脚本:
@@ -100,9 +102,8 @@ git clone https://github.com/openwrt/openwrt
 git clone https://github.com/garypang13/Actions-OpenWrt-Nginx
 cp -Rf Actions-OpenWrt-Nginx/* openwrt/
 cd openwrt
-./scripts/feeds update -a && ./scripts/feeds install -a
+./scripts/feeds update -a
 ./diy.sh
-cp -Rf diy/* ./
 mv X86_64.config .config
 make defconfig
    ```
@@ -112,9 +113,9 @@ cd openwrt && git pull && cd -
 cd Actions-OpenWrt-Nginx && git pull && cd -
 cp -Rf Actions-OpenWrt-Nginx/* openwrt/
 cd openwrt
-./scripts/feeds update -a && ./scripts/feeds install -a
+rm -Rf feeds
+./scripts/feeds update -a
 ./diy.sh
-cp -Rf diy/* ./
 make defconfig
    ```
 5. 如需修改默认配置比如定制插件等,请执行 `make menuconfig`
